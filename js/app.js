@@ -308,40 +308,49 @@ async function fetchHeliusData(mint) {
 
   var totalTxs = humanTxs + botTxs;
 
-  // ── PRIMARY SIGNAL: Total fees paid in SOL ──────────────────────────
-  // Bots pay Solana base fee only: 5000 lamports/tx = 0.000005 SOL each.
-  // Humans pay priority fees + Jito MEV tips = 10x-100x more per tx.
-  //
-  // Calibrated thresholds:
-  //   < 3 SOL total fees  →  BOT / bundle — no real trading
-  //   3-5 SOL             →  borderline / mixed
-  //   5-10+ SOL           →  real human activity confirmed
-  //
-  // If we only sampled a portion of all txs (sample mode), extrapolate
-  // fees proportionally so the threshold math stays consistent.
   var dexTxns24h = dexMetrics ? dexMetrics.txns24h : 0;
-  var feesSolForScoring = totalFeesSol;
+
+  // ── PRIMARY SIGNAL: Average fee per transaction ──────────────────────
+  // Bot pays only Solana base fee: 5,000 lamports per tx (no priority).
+  // Human with any priority fee set: 10,000–2,000,000+ lamports per tx.
+  //
+  // Using AVERAGE (not total) makes scoring scale-invariant:
+  // same result for a 100-tx token and a 10,000-tx token.
+  //
+  // Log scale:
+  //   5,000 lam  (pure minimum, bot)    →   0%
+  //  10,000 lam  (tiny priority)        →  ~18%
+  //  25,000 lam  (low priority)         →  ~43%
+  //  50,000 lam  (moderate priority)    →  ~61%
+  // 100,000 lam  (high priority)        →  ~79%
+  // 200,000 lam+ (very high priority)   → 100%
+  var score;
+  if (txList.length === 0) {
+    score = 0;
+  } else if (avgFeeLamports <= 5100) {
+    score = 0; // pure minimum every tx = machine
+  } else if (avgFeeLamports >= 200000) {
+    score = 100;
+  } else {
+    score = Math.round(Math.log(avgFeeLamports / 5000) / Math.log(200000 / 5000) * 100);
+  }
+
+  // ── SECONDARY SIGNAL: Jito bundle cluster penalty ────────────────────
+  // Real users' txs spread across different seconds.
+  // Bundler = many wallets in the exact same block = same timestamp.
+  if (bundleClusterRatio >= 0.7) score = Math.max(0, score - 40);
+  else if (bundleClusterRatio >= 0.5) score = Math.max(0, score - 25);
+  else if (bundleClusterRatio >= 0.3) score = Math.max(0, score - 10);
+
+  score = Math.max(0, Math.min(100, score));
+
+  // feesSolForScoring kept for display purposes
   var usedFeeExtrapolation = false;
+  var feesSolForScoring = totalFeesSol;
   if (txList.length > 0 && dexTxns24h > txList.length * 1.3) {
     feesSolForScoring = totalFeesSol * (dexTxns24h / txList.length);
     usedFeeExtrapolation = true;
   }
-
-  var score;
-  if (txList.length === 0) {
-    score = 0;
-  } else if (feesSolForScoring >= 10) {
-    score = 100;
-  } else if (feesSolForScoring >= 5) {
-    score = Math.round(60 + ((feesSolForScoring - 5) / 5) * 40);
-  } else if (feesSolForScoring >= 3) {
-    score = Math.round(30 + ((feesSolForScoring - 3) / 2) * 30);
-  } else if (feesSolForScoring >= 1) {
-    score = Math.round(10 + ((feesSolForScoring - 1) / 2) * 20);
-  } else {
-    score = Math.round(feesSolForScoring * 10);
-  }
-  score = Math.max(0, Math.min(100, score));
 
   return {
     tokenName: tokenSymbol ? tokenName + ' (' + tokenSymbol + ')' : tokenName,
