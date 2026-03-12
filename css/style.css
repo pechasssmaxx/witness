@@ -48,7 +48,7 @@ body::before {
   z-index: 0;
 }
 
-/* в”Ђв”Ђ HERO в”Ђв”Ђ */
+/* ---- HERO ---- */
 .hero {
   position: relative;
   min-height: 100vh;
@@ -220,7 +220,7 @@ body::before {
   }
 }
 
-/* в”Ђв”Ђ HUMAN INDEX в”Ђв”Ђ */
+/* ---- HUMAN INDEX ---- */
 .section {
   position: relative;
   z-index: 1;
@@ -636,7 +636,7 @@ body.glitch-mode::after {
   color: #1a3040;
 }
 
-/* в”Ђв”Ђ ABOUT SECTION в”Ђв”Ђ */
+/* ---- ABOUT SECTION ---- */
 .about-section {
   position: relative;
   padding: 80px 20px;

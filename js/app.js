@@ -445,7 +445,7 @@ function detectBot(wallet) {
 function showError(msg) {
   const resultEl = document.getElementById('checkerResult');
   resultEl.innerHTML = `<div class="checker-result-inner" style="text-align:center;padding:40px">
-    <div style="color:#ff2244;font-size:12px;letter-spacing:0.3em">вљ  ERROR: ${msg}</div>
+    <div style="color:#ff2244;font-size:12px;letter-spacing:0.3em">[x] ERROR: ${msg}</div>
     <div style="color:#1a3040;font-size:11px;margin-top:8px">CHECK CONTRACT ADDRESS AND TRY AGAIN</div>
   </div>`;
   resultEl.style.display = 'block';
