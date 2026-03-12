@@ -225,7 +225,14 @@ async function fetchHeliusData(mint) {
       const res = await fetch(url);
       const batch = await res.json();
 
-      if (!Array.isArray(batch) || batch.length === 0) break;
+      // Detect Helius API key error (rate limit / invalid key)
+      if (!Array.isArray(batch)) {
+        if (batch.error || batch.message || batch.statusCode) {
+          throw new Error('HELIUS API KEY RATE LIMITED OR INVALID. UPDATE HELIUS_KEY IN CONFIG.JS');
+        }
+        break;
+      }
+      if (batch.length === 0) break;
 
       txList = txList.concat(batch);
       lastSignature = batch[batch.length - 1].signature;
@@ -271,7 +278,7 @@ async function fetchHeliusData(mint) {
   var coordPenalty = detectCoordination(txList);
   var popPenalty = analyzePopulation(walletActivity, allTimestamps, totalSolVolume, txList.length);
   var dexPenalty = calcDexPenalty(dexMetrics);
-  var rawScore = totalTxs > 0 ? Math.round((humanTxs / totalTxs) * 100) : 50;
+  var rawScore = totalTxs > 0 ? Math.round((humanTxs / totalTxs) * 100) : 0;
   var score = Math.max(0, rawScore - coordPenalty - popPenalty.penalty - dexPenalty.penalty);
 
   return {
@@ -464,9 +471,18 @@ function updateDexScreener(ca) {
   dsStatus.textContent = 'FETCHING MARKET DATA...';
   dsStatus.style.color = '#ffcc00';
 
-  // Fetch DexScreener API
-  fetch(`https://api.dexscreener.com/latest/dex/tokens/${ca}`)
-    .then(res => res.json())
+  // DexScreener helper — try two endpoints
+  function _dsFetch(ca) {
+    return fetch(`https://api.dexscreener.com/latest/dex/tokens/${ca}`)
+      .then(r => r.json())
+      .then(d => { if (!d.pairs || !d.pairs.length) throw new Error('no pair'); return d; })
+      .catch(() =>
+        fetch(`https://api.dexscreener.com/latest/dex/search?q=${ca}`)
+          .then(r => r.json())
+      );
+  }
+
+  _dsFetch(ca)
     .then(data => {
       const pair = data.pairs && data.pairs[0];
       if (pair) {
@@ -484,17 +500,18 @@ function updateDexScreener(ca) {
         placeholder.style.display = 'none';
         dataView.style.display = 'flex';
       } else {
-        dsStatus.textContent = 'NO PAIR FOUND';
-        dsStatus.style.color = '#ff2244';
+        dsStatus.textContent = 'NOT LISTED ON DEX YET';
+        dsStatus.style.color = '#ffcc00';
         placeholder.style.display = 'flex';
         dataView.style.display = 'none';
-        placeholder.innerHTML = `<div style="font-size:24px; margin-bottom:10px;">⚠️</div><div style="font-family:'Share Tech Mono', monospace;">NO DEX PAIR FOUND FOR THIS CA</div>`;
+        placeholder.innerHTML = `<div style="font-size:24px; margin-bottom:10px;">⏳</div><div style="font-family:'Share Tech Mono', monospace;">TOKEN NOT YET LISTED ON DEXSCREENER</div>`;
       }
     })
     .catch(err => {
       console.error(err);
-      dsStatus.textContent = 'API ERROR';
-      dsStatus.style.color = '#ff2244';
+      dsStatus.textContent = 'DEXSCREENER UNAVAILABLE';
+      dsStatus.style.color = '#ff8800';
+      placeholder.innerHTML = `<div style="font-family:'Share Tech Mono', monospace; color:#ff8800; font-size:11px;">DEXSCREENER API UNAVAILABLE — <a href="https://dexscreener.com/solana/${ca}" target="_blank" style="color:#00ff88">OPEN DIRECTLY ↗</a></div>`;
     });
 }
 
@@ -884,10 +901,11 @@ function analyzePopulation(walletActivity, allTimestamps, totalSolVolume, totalT
   var singleTxCount = wallets.filter(function(w){ return w.count === 1; }).length;
   var singleTxRatio = singleTxCount / totalWallets;
   var singleTxPenalty = 0;
-  if (singleTxRatio >= 0.95)      singleTxPenalty = 50;
-  else if (singleTxRatio >= 0.90) singleTxPenalty = 40;
-  else if (singleTxRatio >= 0.85) singleTxPenalty = 28;
-  else if (singleTxRatio >= 0.75) singleTxPenalty = 16;
+  // Pump.fun bundler pattern: hundreds of wallets, each with exactly 1 tx = classic bundle
+  if (singleTxRatio >= 0.95)      singleTxPenalty = 70;
+  else if (singleTxRatio >= 0.90) singleTxPenalty = 55;
+  else if (singleTxRatio >= 0.85) singleTxPenalty = 38;
+  else if (singleTxRatio >= 0.75) singleTxPenalty = 22;
 
   var burstRatio = 0, burstPenalty = 0;
   if (allTimestamps.length >= 15) {
@@ -904,15 +922,22 @@ function analyzePopulation(walletActivity, allTimestamps, totalSolVolume, totalT
   }
 
   var solVolPenalty = 0;
-  if (totalTxCount >= 30 && totalSolVolume > 0) {
+  if (totalTxCount >= 10 && totalSolVolume > 0) {
     var avgSol = totalSolVolume / totalTxCount;
-    if (avgSol < 0.005)      solVolPenalty = 30;
+    if (avgSol < 0.005)      solVolPenalty = 40;  // micro-dust trades = bot
+    else if (avgSol < 0.01)  solVolPenalty = 28;
     else if (avgSol < 0.02)  solVolPenalty = 18;
     else if (avgSol < 0.05)  solVolPenalty = 8;
   }
 
+  // Extra penalty: micro-volume + high single-tx = almost certainly bundled
+  var bundlePenalty = 0;
+  if (singleTxRatio >= 0.85 && totalSolVolume < 10 && totalTxCount >= 20) {
+    bundlePenalty = 20;
+  }
+
   return {
-    penalty: Math.min(70, singleTxPenalty + burstPenalty + solVolPenalty),
+    penalty: Math.min(95, singleTxPenalty + burstPenalty + solVolPenalty + bundlePenalty),
     singleTxRatio: Math.round(singleTxRatio * 100),
     burstRatio: Math.round(burstRatio * 100),
     solVolPenalty: solVolPenalty
