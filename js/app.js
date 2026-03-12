@@ -311,7 +311,13 @@ async function fetchHeliusData(mint) {
     else if (avgFeeLamports <= 7000) feePenalty = 8;
   }
 
-  var rawScore = totalTxs > 0 ? Math.round((humanTxs / totalTxs) * 100) : 0;
+  // Если DexScreener знает о большем числе txs чем мы загрузили —
+  // экстраполируем: пропущенные старые txs (бандл при запуске) = 0% human
+  var effectiveTotalTxs = totalTxs;
+  if (totalTxs > 0 && dexMetrics && dexMetrics.txns24h > totalTxs * 1.3) {
+    effectiveTotalTxs = dexMetrics.txns24h;
+  }
+  var rawScore = effectiveTotalTxs > 0 ? Math.round((humanTxs / effectiveTotalTxs) * 100) : 0;
   var score = Math.max(0, rawScore - coordPenalty - popPenalty.penalty - dexPenalty.penalty - mcapVolPenalty - feePenalty - truncatedPenalty);
 
   return {
