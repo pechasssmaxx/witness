@@ -248,30 +248,53 @@ async function fetchHeliusData(mint) {
     } catch (e) { break; }
   }
 
-  // 4. Analyze wallets — bot detection
+  // 4. Analyze wallets — multi-signal bot detection
   var walletActivity = {};
   var allTimestamps = [];
   var totalSolLamports = 0;
   var totalFeeLamports = 0;
+  // slotCount: how many txs share the exact same timestamp
+  // Jito bundles execute multiple wallets in the SAME slot = same timestamp
+  var slotCount = {};
+
   for (var _ti = 0; _ti < txList.length; _ti++) {
     var tx = txList[_ti];
     var signer = tx.feePayer || (tx.signers && tx.signers[0]);
     if (!signer) continue;
-    if (!walletActivity[signer]) walletActivity[signer] = { count: 0, timestamps: [] };
+    if (!walletActivity[signer]) {
+      walletActivity[signer] = { count: 0, timestamps: [], fees: [], amounts: [] };
+    }
     walletActivity[signer].count++;
+
+    var _fee = tx.fee || 5000;
+    totalFeeLamports += _fee;
+    walletActivity[signer].fees.push(_fee);
+
     if (tx.timestamp) {
       walletActivity[signer].timestamps.push(tx.timestamp);
       allTimestamps.push(tx.timestamp);
+      slotCount[tx.timestamp] = (slotCount[tx.timestamp] || 0) + 1;
     }
+
+    var _solAmt = 0;
     if (tx.nativeTransfers && tx.nativeTransfers.length > 0) {
-      var _maxAmt = Math.max.apply(null, tx.nativeTransfers.map(function(t){ return t.amount||0; }));
-      totalSolLamports += _maxAmt;
+      _solAmt = Math.max.apply(null, tx.nativeTransfers.map(function(t){ return t.amount||0; }));
+      totalSolLamports += _solAmt;
     }
-    if (tx.fee) totalFeeLamports += tx.fee;
+    walletActivity[signer].amounts.push(_solAmt);
   }
+
   var totalSolVolume = totalSolLamports / 1e9;
   var totalFeesSol = totalFeeLamports / 1e9;
   var avgFeeLamports = txList.length > 0 ? (totalFeeLamports / txList.length) : 0;
+
+  // Jito bundle cluster ratio: % of txs sharing a timestamp slot with another tx
+  // In a real Jito bundle, 20-100 wallets buy in the exact same block = same second
+  var bundledTxCount = 0;
+  Object.keys(slotCount).forEach(function(slot) {
+    if (slotCount[slot] >= 2) bundledTxCount += slotCount[slot];
+  });
+  var bundleClusterRatio = txList.length > 0 ? (bundledTxCount / txList.length) : 0;
 
   var humanTxs = 0, botTxs = 0;
   var humanWallets = 0, botWallets = 0;
@@ -335,39 +358,79 @@ async function fetchHeliusData(mint) {
     dexTxns24h,
     dexMarketCap: dexMetrics ? dexMetrics.marketCap : 0,
     dexVolume1h: dexMetrics ? dexMetrics.volume1h : 0,
+    bundleClusterRatio,
     lowSample: txList.length < 40,
     rawTxs: txList.slice(0, 8)
   };
 }
 
-function detectBot(data) {
-  // 1. Same wallet made 5+ swaps = likely bot (humans rarely swap 5+ times)
-  if (data.count >= 5) return true;
-  // 2. Swaps < 5s apart = automated bot (humans need more time to click)
-  if (data.timestamps.length >= 2) {
-    const sorted = [...data.timestamps].sort((a, b) => a - b);
-    for (let i = 1; i < sorted.length; i++) {
-      if (sorted[i] - sorted[i - 1] < 5) return true;
+// ═══════════════════════════════════════════════════════════
+//  MULTI-SIGNAL BOT DETECTION — 5 independent signals
+//  Score >= 50 = classified as BOT
+// ═══════════════════════════════════════════════════════════
+function detectBot(wallet) {
+  var botScore = 0;
+
+  // ── SIGNAL 1: Fee level (max 40 pts) ─────────────────────────────────
+  // Bots submit only the Solana base fee: 5000 lamports per tx.
+  // Humans competing on-chain pay priority fees: 10,000–2,000,000+ lamports.
+  // If a wallet NEVER paid a single lamport above minimum → machine.
+  if (wallet.fees && wallet.fees.length > 0) {
+    var _feeTotal = wallet.fees.reduce(function(a,b){ return a+b; }, 0);
+    var _feeAvg   = _feeTotal / wallet.fees.length;
+    var _allMin   = wallet.fees.every(function(f){ return f <= 5100; });
+    if (_allMin)              botScore += 40; // zero priority ever = machine
+    else if (_feeAvg <= 6000) botScore += 25; // barely above minimum
+    else if (_feeAvg <= 15000) botScore += 8; // low priority, suspicious
+    // avgFee > 15,000 lamports = normal human behavior, no penalty
+  }
+
+  // ── SIGNAL 2: Burst speed between txs (max 30 pts) ───────────────────
+  // Human reaction time + wallet confirmation = minimum ~3-5 seconds.
+  // A bot or script can fire multiple txs in the same second.
+  if (wallet.timestamps && wallet.timestamps.length >= 2) {
+    var _ts = wallet.timestamps.slice().sort(function(a,b){ return a-b; });
+    var _minGap = Infinity;
+    for (var _i = 1; _i < _ts.length; _i++) {
+      var _gap = _ts[_i] - _ts[_i-1];
+      if (_gap < _minGap) _minGap = _gap;
+    }
+    if (_minGap === 0)      botScore += 30; // same second = definite bundle/script
+    else if (_minGap <= 2)  botScore += 22; // sub 2s = automated
+    else if (_minGap <= 5)  botScore += 12; // sub 5s = very suspicious
+    else if (_minGap <= 10) botScore += 4;  // fast but humanly possible
+  }
+
+  // ── SIGNAL 3: Identical trade amounts (max 20 pts) ────────────────────
+  // Jito bundlers split a fixed SOL amount across their wallets equally.
+  // e.g. 50 wallets each buying exactly 0.05 SOL = textbook bundle.
+  if (wallet.amounts && wallet.amounts.length >= 2) {
+    var _nonZero = wallet.amounts.filter(function(a){ return a > 0; });
+    if (_nonZero.length >= 2) {
+      var _allSame = _nonZero.every(function(a){ return a === _nonZero[0]; });
+      if (_allSame) botScore += 20;
     }
   }
-  return false;
-}
 
-// Detect coordinated bot swarm: ONLY penalize extreme cases (90%+ in 5 min window)
-// Most token launches have concentrated early trading — that's normal human behavior
-function detectCoordination(txList) {
-  if (txList.length < 30) return 0;
-  const ts = txList.map(tx => tx.timestamp).filter(Boolean).sort((a, b) => a - b);
-  if (ts.length < 30) return 0;
-  const WINDOW = 300; // 5-minute window
-  let maxInWindow = 0;
-  for (let i = 0; i < ts.length; i++) {
-    const count = ts.filter(t => t >= ts[i] && t <= ts[i] + WINDOW).length;
-    if (count > maxInWindow) maxInWindow = count;
+  // ── SIGNAL 4: Fee variance (max 10 pts) ──────────────────────────────
+  // Humans adjust fees based on network conditions — fees vary.
+  // A bot always submits the exact same fee config = near-zero variance.
+  // Only check if wallet paid above minimum (to avoid conflating with signal 1).
+  if (wallet.fees && wallet.fees.length >= 3) {
+    var _fSum = wallet.fees.reduce(function(a,b){ return a+b; }, 0);
+    var _fAvg = _fSum / wallet.fees.length;
+    if (_fAvg > 5100) {
+      var _fVar = wallet.fees.reduce(function(acc,f){ return acc + Math.pow(f - _fAvg, 2); }, 0) / wallet.fees.length;
+      var _cv = Math.sqrt(_fVar) / _fAvg; // coefficient of variation
+      if (_cv < 0.02) botScore += 10; // < 2% variation = machine precision
+    }
   }
-  const ratio = maxInWindow / ts.length;
-  if (ratio >= 0.92) return 25; // 92%+ in 5min = clear bot swarm, penalize
-  return 0;
+
+  // ── SIGNAL 5: High tx count from single wallet (max 5 pts) ───────────
+  // Whales buy big once or twice. Bots farm with many small txs.
+  if (wallet.count >= 20) botScore += 5;
+
+  return botScore >= 50;
 }
 
 function showError(msg) {
@@ -382,7 +445,7 @@ function showError(msg) {
 function showResult(addr, data) {
   const { tokenName, totalTxs, humanTxs, botTxs, score, rawTxs, lowSample,
           totalFeesSol, feesSolForScoring, usedFeeExtrapolation, avgFeeLamports,
-          dexTxns24h, dexMarketCap, dexVolume1h } = data;
+          dexTxns24h, dexMarketCap, dexVolume1h, bundleClusterRatio } = data;
 
   let color, verdict, verdictBg;
   if (score >= 60) {
@@ -434,8 +497,23 @@ function showResult(addr, data) {
   } else {
     warnings.push('✓ HIGH PRIORITY FEES — ' + _feesDisplay + ' TOTAL — REAL HUMAN TRADING CONFIRMED');
   }
+  // Per-tx avg fee
   if (avgFeeLamports > 0 && avgFeeLamports <= 5200) {
     warnings.push('⚠ AVG TX FEE ' + Math.round(avgFeeLamports).toLocaleString() + ' LAMPORTS — AT SOLANA MINIMUM — NO PRIORITY FEES DETECTED');
+  } else if (avgFeeLamports > 50000) {
+    warnings.push('✓ AVG TX FEE ' + Math.round(avgFeeLamports).toLocaleString() + ' LAMPORTS — HIGH PRIORITY FEES — COMPETITIVE HUMAN TRADING');
+  }
+  // Jito bundle cluster signal
+  if (bundleClusterRatio >= 0.7) {
+    warnings.push('⚠ ' + Math.round(bundleClusterRatio * 100) + '% TXS IN SAME-SLOT CLUSTERS — JITO BUNDLE CONFIRMED');
+  } else if (bundleClusterRatio >= 0.4) {
+    warnings.push('⚠ ' + Math.round(bundleClusterRatio * 100) + '% TXS CLUSTER IN SAME SLOT — PARTIAL BUNDLE ACTIVITY');
+  }
+  // Wallet classification summary
+  if (totalTxs > 0) {
+    var _botPct = Math.round((botTxs / totalTxs) * 100);
+    if (_botPct >= 80) warnings.push('⚠ ' + _botPct + '% OF TXS FROM BOT WALLETS — ' + botTxs + '/' + totalTxs);
+    else if (_botPct <= 20) warnings.push('✓ ' + (100 - _botPct) + '% OF TXS FROM HUMAN WALLETS — ' + humanTxs + '/' + totalTxs);
   }
   if (lowSample) warnings.push('⚠ LOW SAMPLE — ONLY ' + totalTxs + ' TXS ANALYZED — RESULTS MAY BE INACCURATE');
   if (warnings.length > 0) {
