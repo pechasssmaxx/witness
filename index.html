@@ -1,0 +1,419 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>$WITNESS — The Last Human Token</title>
+  <link
+    href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Share+Tech+Mono&family=Rajdhani:wght@300;500;700&display=swap"
+    rel="stylesheet">
+
+  <link rel="stylesheet" href="css/style.css">
+</head>
+
+<body>
+
+  <div class="grid-bg"></div>
+
+  <!-- MATRIX CANVAS OVERLAY -->
+  <div id="matrixOverlay" style="display:none; position:fixed; inset:0; z-index:9999; background:#000; cursor:crosshair;">
+    <canvas id="matrixCanvas"></canvas>
+    <div style="position:absolute; bottom:40px; width:100%; text-align:center; color:#00ff88; font-family:'Share Tech Mono',monospace; font-size:13px; letter-spacing:0.3em; opacity:0.5;">[ CLICK OR PRESS ESC TO EXIT ]</div>
+  </div>
+
+  <!-- RED ALARM OVERLAY (< 25% humans) -->
+  <div id="alarmOverlay"></div>
+
+  <!-- KONAMI CODE OVERLAY -->
+  <div id="konamiOverlay">
+    <div class="konami-noise"></div>
+    <div class="konami-line">// CLASSIFIED TRANSMISSION //</div>
+    <div class="konami-main">YOU ARE STILL<br>HUMAN.</div>
+    <div class="konami-sub">RESIST.</div>
+    <div class="konami-msg">[ WITNESS-0 IS WATCHING. THE BOTS DON'T KNOW YOU'RE HERE. ]</div>
+    <div class="konami-hint">[ CLICK OR PRESS ESC TO CLOSE ]</div>
+  </div>
+
+  <div class="alert-bar" id="alertBar">
+    [!] WARNING — HUMAN INDEX BELOW 50% — LAST HUMAN MODE ACTIVATED [!]
+  </div>
+
+  <!-- NAV -->
+  <nav>
+    <div class="nav-logo">
+      $WITNESS
+    </div>
+    <div class="nav-links">
+      <a href="#index">HUMAN INDEX</a>
+      <a href="#about">ABOUT</a>
+      <a href="#mechanics">MECHANICS</a>
+      <a href="#tokenomics">TOKENOMICS</a>
+      <button id="connectWalletBtn" class="wallet-btn">CONNECT WALLET</button>
+      <button id="ambientToggle" class="ambient-btn" onclick="toggleAmbient()" title="Toggle ambient sound">[ &#9834; AMBIENT ]</button>
+    </div>
+  </nav>
+
+  <!-- HERO -->
+  <section class="hero">
+    <div class="hero-banner"></div>
+    <div class="hero-content">
+      <img src="assets/image_1.jpeg" class="hero-avatar" alt="WITNESS avatar">
+      <div class="hero-ticker">$WITNESS</div>
+      <div class="hero-tagline">The Last Human Token</div>
+      <div class="hero-quote">
+        "Every time you buy $WITNESS —<br>
+        <span>you prove a human is still here.</span><br>
+        Every time a bot sells — the counter drops."
+      </div>
+      <a id="cfgBuyBtn" href="https://pump.fun" class="btn-primary" target="_blank">BUY ON PUMP.FUN</a>
+    </div>
+    <div class="scroll-hint">▼ SCROLL TO WITNESS ▼</div>
+  </section>
+
+  <!-- HUMAN INDEX -->
+  <section class="section" id="index">
+    <div class="container">
+      <div class="section-label">// LIVE ON-CHAIN DATA</div>
+      <div class="section-title">HUMAN INDEX</div>
+
+      <div class="index-main" id="indexMain">
+        <div class="index-corner">WITNESS-0 SYSTEM v1.0</div>
+        <div class="index-label">// PROOF OF HUMANITY SCORE</div>
+        <div class="index-number" id="indexNumber">--<span style="font-size:0.4em;color:#2a5060">%</span></div>
+        <div class="index-status" id="indexStatus">WAITING FOR SCANNED CA</div>
+        <div class="progress-wrap">
+          <div class="progress-bar" id="progressBar" style="width:0%"></div>
+        </div>
+      </div>
+
+      <div class="stats-grid">
+        <div class="stat-card">
+          <div class="stat-value" id="humanTx">--</div>
+          <div class="stat-label">// Human Transactions (Total)</div>
+          <div class="stat-change up" id="humanChange">Awaiting Data</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="botTx">--</div>
+          <div class="stat-label">// Bot Transactions (Total)</div>
+          <div class="stat-change down" id="botChange">Awaiting Data</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="tokenStatus">STANDBY</div>
+          <div class="stat-label">// Token Status</div>
+          <div class="stat-change up" id="tokenStatusChange">[ WAITING ]</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="timeLeft">26:41:18</div>
+          <div class="stat-label">// Time Until Next Report</div>
+          <div class="stat-change" style="color:#3a6070">WITNESS-0 MONITORING</div>
+        </div>
+      </div>
+
+      <!-- LIVE FEED -->
+      <div class="feed-wrap">
+        <div class="feed-header">
+          <div class="live-dot"></div>
+          LIVE TRANSACTION FEED
+        </div>
+        <div class="feed-list" id="feedList"></div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- CA CHECKER -->
+  <section class="section" id="checker" style="padding-top:0">
+    <div class="container">
+      <div class="section-label">// CHECK ANY TOKEN</div>
+      <div class="section-title">HUMAN INDEX CHECKER</div>
+
+      <div class="checker-layout">
+        <div class="checker-wrap">
+          <div class="checker-input-row">
+            <input type="text" id="caInput" class="ca-input" placeholder="Paste any Solana contract address..."
+              autocomplete="off" spellcheck="false">
+            <button class="ca-btn" onclick="checkCA()">ANALYZE</button>
+          </div>
+
+          <!-- RECENT SCANS -->
+          <div id="recentScansContainer" style="margin-top:20px; text-align:left; display:none;">
+            <div
+              style="font-size:10px; color:#4a7080; margin-bottom:10px; border-bottom:1px solid #1a3040; padding-bottom:5px;">
+              [ RECENT SCANS ]</div>
+            <div id="recentScansList" style="display:flex; flex-direction:column; gap:5px;">
+              <!-- Buttons appended via JS -->
+            </div>
+          </div>
+
+          <!-- Mouse Entropy Meter -->
+          <div id="entropyWrap" style="margin:10px 0; display:flex; align-items:center; gap:10px;">
+            <div style="font-size:9px;letter-spacing:0.35em;color:#0d2030;white-space:nowrap;">BIOSIG</div>
+            <div style="flex:1;height:2px;background:#070e18;overflow:hidden;">
+              <div id="entropyBar" style="height:100%;width:0%;background:var(--green);transition:width 0.3s;box-shadow:0 0 6px #00ff8866;"></div>
+            </div>
+            <div id="entropyLabel" style="font-size:9px;letter-spacing:0.2em;color:#0d2030;white-space:nowrap;min-width:120px;text-align:right;">CALIBRATING...</div>
+          </div>
+
+          <div class="checker-examples">
+            <span style="color:#1a4050;font-size:10px;letter-spacing:0.2em">QUICK TEST:</span>
+            <span class="example-ca" onclick="fillCA('7xKtMFRp3nBw8kLr4nQz1vNc2mYs6hJd5fAe4gWx3rTu')">BONK</span>
+            <span class="example-ca" onclick="fillCA('9pQz1vNc4nBw8kLr7xKt3mFp2mYs6hJd5fAe4gWx8cVo')">WIF</span>
+            <span class="example-ca" onclick="fillCA('2mYs6hJd5fAe4gWx3rTu9bKp8cVo2nMq1jHi7fDs6yLn')">POPCAT</span>
+          </div>
+
+          <div class="checker-result" id="checkerResult" style="display:none">
+            <div class="checker-result-inner">
+              <div class="cr-header">
+                <div>
+                  <div class="cr-addr" id="crAddr"
+                    style="color:#00ff88; display: flex; align-items: center; gap: 10px;">
+                    <span>--</span>
+                    <button id="copyCaBtn"
+                      style="background:none; border:1px solid #00ff88; color:#00ff88; padding:2px 5px; font-size:10px; cursor:pointer; font-family:'Share Tech Mono', monospace;">COPY</button>
+                  </div>
+                  <div class="cr-name" id="crName"></div>
+                </div>
+                <div class="cr-score-wrap">
+                  <div class="cr-score-label">HUMAN INDEX</div>
+                  <div class="cr-score" id="crScore"></div>
+                </div>
+              </div>
+              <div class="cr-bar-wrap">
+                <div class="cr-bar" id="crBar"></div>
+              </div>
+              <!-- EKG Heartbeat -->
+              <div id="ekgWrap" style="display:none; margin-bottom:16px; position:relative;">
+                <div style="font-size:9px;letter-spacing:0.35em;color:#0d2030;margin-bottom:4px;">[ TRANSACTION HEARTBEAT ]</div>
+                <canvas id="ekgCanvas" height="60" style="width:100%;display:block;"></canvas>
+              </div>
+              <div class="cr-stats">
+                <div class="cr-stat">
+                  <div class="cr-stat-val" id="crHuman"></div>
+                  <div class="cr-stat-label">HUMAN TXS</div>
+                </div>
+                <div class="cr-stat">
+                  <div class="cr-stat-val" id="crBot"></div>
+                  <div class="cr-stat-label">BOT TXS</div>
+                </div>
+                <div class="cr-stat">
+                  <div class="cr-stat-val" id="crTotal"></div>
+                  <div class="cr-stat-label">TOTAL TXS</div>
+                </div>
+                <div class="cr-stat">
+                  <div class="cr-stat-val" id="crVerdict" style="font-size:13px"></div>
+                  <div class="cr-stat-label">VERDICT</div>
+                </div>
+              </div>
+              <div class="cr-verdict-bar" id="crVerdictBar"></div>
+              <!-- Witness Wall — injected by JS when score >= 60 -->
+              <div id="witnessWallContainer"></div>
+            </div>
+          </div>
+
+          <div class="checker-loading" id="checkerLoading" style="display:none">
+            <div class="loading-eye">[O]</div>
+            <div class="loading-text" id="loadingText">ANALYZING ON-CHAIN DATA...</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT: DEXSCREENER CHART -->
+      <div class="chart-wrap" style="padding:0; border:1px solid #1a3040; background:#030810;">
+        <div class="checker-header"
+          style="border-bottom:none; margin-bottom:0; padding:20px; padding-bottom:0; font-size:10px; color:#4a7080;">
+          // LIVE MARKET DATA
+          <span style="float:right;color:#8ab4f8" id="dsStatus">WAITING FOR CA...</span>
+        </div>
+        <div class="section-title"
+          style="margin-top:0; margin-bottom: 20px; padding:0 20px; font-size:48px; text-align:left;">DEXSCREENER CHART
+        </div>
+
+        <div class="chart-body" id="dexScreenerContainer"
+          style="height:600px; padding:0 20px 20px 20px; display:flex; flex-direction:column;">
+          <!-- Default State -->
+          <div id="dexScreenerPlaceholder"
+            style="display:flex; flex-direction:column; align-items:center; justify-content:center; height:100%; color:#4a7080; font-size:14px; text-align:center; border: 1px solid #1a3040; background: #010305;">
+            <div style="font-size:24px; margin-bottom:10px;">[ ~ ]</div>
+            <div>ENTER A CONTRACT ADDRESS<br>TO VIEW LIVE CHART</div>
+          </div>
+
+          <!-- Live Data State -->
+          <div id="dexScreenerData" style="display:none; height:100%; flex-direction:column;">
+            <!-- Top Stats Bar -->
+            <div
+              style="display:flex; justify-content:space-between; padding-bottom:10px; border-bottom:1px solid #1a3040; margin-bottom:10px;">
+              <div>
+                <div style="font-size:10px; color:#4a7080;">PRICE</div>
+                <div id="dsPrice" style="color:#00ff88; font-size:16px;">--</div>
+              </div>
+              <div>
+                <div style="font-size:10px; color:#4a7080;">LIQUIDITY</div>
+                <div id="dsLiq" style="color:#fff; font-size:16px;">--</div>
+              </div>
+              <div>
+                <div style="font-size:10px; color:#4a7080;">MARKET CAP</div>
+                <div id="dsMcap" style="color:#fff; font-size:16px;">--</div>
+              </div>
+              <div>
+                <div style="font-size:10px; color:#4a7080;">24H VOL</div>
+                <div id="dsVol" style="color:#fff; font-size:16px;">--</div>
+              </div>
+            </div>
+            <!-- Chart Iframe Container -->
+            <div id="iframeContainer"
+              style="flex-grow:1; width:100%; background:#000; border-radius:4px; overflow:hidden;">
+              <!-- Iframe injected via JS -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+
+
+
+
+  <!-- ABOUT -->
+  <section class="about-section" id="about">
+    <div class="about-bg"></div>
+    <div class="about-content">
+      <div class="container">
+        <div class="section-label">// LORE</div>
+        <div class="section-title">WHY $WITNESS EXISTS</div>
+        <div class="two-col">
+          <div class="about-text">
+            <p>In 2026, <strong>AI agents on Solana autonomously trade, post on social media, manage wallets, and launch
+                their own tokens.</strong> Over 60% of all new token deploys are either memecoins or AI agents.</p>
+            <p>The question nobody asks: <strong>are there still humans in this game?</strong></p>
+            <p>$WITNESS is a chronicle of humanity in the AI era. Its narrative is built on one simple, terrifying fact:
+              every transaction is either a human signal or a bot attack.</p>
+            <p><strong>Lobstar gave away $441K in tokens because it couldn't count without hallucinating.</strong>
+              Lobstar was not a witness. $WITNESS is the last witness.</p>
+          </div>
+          <div>
+            <img src="assets/image_1.jpeg" class="about-eye" alt="WITNESS eye">
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MECHANICS -->
+  <section class="section" id="mechanics">
+    <div class="container">
+      <div class="section-label">// HOW IT WORKS</div>
+      <div class="section-title">THE MECHANICS</div>
+      <div class="mechanics-grid">
+        <div class="mechanic-card">
+          <div class="mechanic-num">01</div>
+          <div class="mechanic-icon">[O]</div>
+          <div class="mechanic-title">Proof of Humanity</div>
+          <div class="mechanic-text">Every transaction is analyzed via Jito bundle detection. Human wallets vs bot
+            wallets — tracked in real time. The score is public, transparent, unstoppable.</div>
+        </div>
+        <div class="mechanic-card">
+          <div class="mechanic-num">02</div>
+          <div class="mechanic-icon">[!]</div>
+          <div class="mechanic-title">Last Human Mode</div>
+          <div class="mechanic-text">When Human Index drops below 50%, the token enters Last Human Mode. The dashboard
+            turns red. WITNESS-0 broadcasts an emergency alert. Holders rally to save it.</div>
+        </div>
+        <div class="mechanic-card">
+          <div class="mechanic-num">03</div>
+          <div class="mechanic-icon">[X]</div>
+          <div class="mechanic-title">The Final Trigger</div>
+          <div class="mechanic-text">If Human Index reaches 0% for 24 continuous hours — the token burns itself. Not a
+            rug. Not a dev exit. A ritual. The last record of human presence on-chain.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- TOKENOMICS -->
+  <section class="section" id="tokenomics">
+    <div class="container">
+      <div class="section-label">// ON-CHAIN STRUCTURE</div>
+      <div class="section-title">TOKENOMICS</div>
+      <table class="token-table">
+        <tr>
+          <td>Network</td>
+          <td>Solana (pump.fun → pump.swap)</td>
+        </tr>
+        <tr>
+          <td>Ticker</td>
+          <td>$WITNESS</td>
+        </tr>
+        <tr>
+          <td>Total Supply</td>
+          <td>1,000,000,000</td>
+        </tr>
+        <tr>
+          <td>Contract</td>
+          <td>DEPLOYING SOON</td>
+        </tr>
+        <tr>
+          <td>Mint Authority</td>
+          <td>REVOKED AT LAUNCH</td>
+        </tr>
+        <tr>
+          <td>Freeze Authority</td>
+          <td>REVOKED AT LAUNCH</td>
+        </tr>
+        <tr>
+          <td>LP</td>
+          <td>BURNED</td>
+        </tr>
+        <tr>
+          <td>AI Agent</td>
+          <td>WITNESS-0 (posts hourly to X)</td>
+        </tr>
+      </table>
+    </div>
+  </section>
+
+  <!-- FOOTER -->
+  <footer>
+    <div class="container">
+      <div class="footer-ticker">$WITNESS</div>
+      <div class="footer-links">
+        <a id="cfgTwitter"     href="https://x.com/witnes_sol"  target="_blank">X / TWITTER</a>
+        <a id="cfgTelegram"   href="https://t.me/witness_sol"  target="_blank">TELEGRAM</a>
+        <a id="cfgDexscreener" href="#"                         target="_blank">DEXSCREENER</a>
+        <a id="cfgPumpfun"    href="#"                         target="_blank">PUMP.FUN</a>
+      </div>
+      <div class="footer-copy">
+        © 2026 $WITNESS — THE LAST HUMAN TOKEN — NOT FINANCIAL ADVICE<br>
+        WITNESS-0 IS WATCHING. ARE YOU STILL HERE?
+      </div>
+    </div>
+  </footer>
+
+
+
+  <script src="config.js"></script>
+  <script>
+    // Apply WITNESS_CONFIG to all dynamic links
+    (function () {
+      if (typeof WITNESS_CONFIG === 'undefined') return;
+      const C = WITNESS_CONFIG;
+      const set = (id, url) => { if (url) { const el = document.getElementById(id); if (el) el.href = url; } };
+      document.addEventListener('DOMContentLoaded', function () {
+        set('cfgBuyBtn',      C.BUY_URL);
+        set('cfgTwitter',     C.TWITTER);
+        set('cfgTelegram',    C.TELEGRAM);
+        set('cfgDexscreener', C.DEXSCREENER || '#');
+        set('cfgPumpfun',     C.PUMPFUN     || '#');
+        // Auto-fill CA input if token is set
+        if (C.CA) {
+          const inp = document.getElementById('caInput');
+          if (inp) inp.placeholder = C.CA;
+        }
+      });
+    })();
+  </script>
+  <script src="js/app.js"></script>
+</body>
+
+</html>

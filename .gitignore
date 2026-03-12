@@ -1,0 +1,14 @@
+node_modules/
+.env
+*.log
+.DS_Store
+.vscode/
+*.bak
+*.tmp
+
+# Утилиты разработки (Development utilities)
+extract_images.js
+extract_images.ps1
+split.js
+split.ps1
+split.py
