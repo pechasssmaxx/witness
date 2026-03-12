@@ -202,7 +202,8 @@ async function fetchHeliusData(mint) {
       dexMetrics = {
         marketCap:    _pair.marketCap || _pair.fdv || 0,
         volume1h:     (_pair.volume && _pair.volume.h1)  || 0,
-        liquidityUsd: (_pair.liquidity && _pair.liquidity.usd) || 0
+        liquidityUsd: (_pair.liquidity && _pair.liquidity.usd) || 0,
+        txns24h:      (_pair.txns && _pair.txns.h24) ? ((_pair.txns.h24.buys || 0) + (_pair.txns.h24.sells || 0)) : 0
       };
     }
   } catch(e) {}
@@ -210,7 +211,7 @@ async function fetchHeliusData(mint) {
   // 3. Fetch all transactions — paginated up to MAX_PAGES * 100
   var txList = [];
   let lastSignature = null;
-  const MAX_PAGES = 20; // 20 pages × 100 = up to 2000 transactions
+  const MAX_PAGES = 60; // 60 pages × 100 = up to 6000 transactions
 
   document.getElementById('loadingText').textContent = 'FETCHING ALL TRANSACTIONS...';
 
@@ -283,6 +284,16 @@ async function fetchHeliusData(mint) {
   var popPenalty = analyzePopulation(walletActivity, allTimestamps, totalSolVolume, txList.length);
   var dexPenalty = calcDexPenalty(dexMetrics);
 
+  // Если не все транзакции загружены — начальный бандл при запуске мог быть пропущен
+  // Helius пагинирует newest-first: мы видим последние N, пропускаем старые (бандл)
+  var truncatedPenalty = 0;
+  var hitPageLimit = (txList.length >= MAX_PAGES * 100);
+  if (hitPageLimit) {
+    truncatedPenalty = 25; // гарантированно есть ещё транзакции = вероятно бандл при запуске
+  } else if (dexMetrics && dexMetrics.txns24h > txList.length * 1.5 && dexMetrics.txns24h > 500) {
+    truncatedPenalty = 20; // DexScreener видит больше транзакций чем мы нашли
+  }
+
   // MCap vs on-chain SOL volume: если mcap >> реального объёма = накрутка/бандл
   var mcapVolPenalty = 0, mcapVolLabel = null;
   if (dexMetrics && dexMetrics.marketCap > 5000 && totalSolVolume > 0) {
@@ -301,7 +312,7 @@ async function fetchHeliusData(mint) {
   }
 
   var rawScore = totalTxs > 0 ? Math.round((humanTxs / totalTxs) * 100) : 0;
-  var score = Math.max(0, rawScore - coordPenalty - popPenalty.penalty - dexPenalty.penalty - mcapVolPenalty - feePenalty);
+  var score = Math.max(0, rawScore - coordPenalty - popPenalty.penalty - dexPenalty.penalty - mcapVolPenalty - feePenalty - truncatedPenalty);
 
   return {
     tokenName: tokenSymbol ? tokenName + ' (' + tokenSymbol + ')' : tokenName,
@@ -324,6 +335,9 @@ async function fetchHeliusData(mint) {
     mcapVolLabel,
     feePenalty,
     totalFeesSol,
+    truncatedPenalty,
+    hitPageLimit,
+    dexTxns24h: dexMetrics ? dexMetrics.txns24h : 0,
     lowSample: totalTxs < 40,
     rawTxs: txList.slice(0, 8)
   };
@@ -371,7 +385,8 @@ function showError(msg) {
 function showResult(addr, data) {
   const { tokenName, totalTxs, humanTxs, botTxs, score, rawTxs, lowSample, coordPenalty,
           singleTxRatio, burstRatio, popPenalty, solVolPenalty, dexPenalty, dexLabel, dexVolume1h, dexMarketCap,
-          mcapVolPenalty, mcapVolLabel, feePenalty, totalFeesSol } = data;
+          mcapVolPenalty, mcapVolLabel, feePenalty, totalFeesSol,
+          truncatedPenalty, hitPageLimit, dexTxns24h } = data;
 
   let color, verdict, verdictBg;
   if (score >= 60) {
@@ -418,6 +433,10 @@ function showResult(addr, data) {
     var _v = dexVolume1h < 1 ? ('$' + Number(dexVolume1h).toFixed(2)) : ('$' + Math.round(dexVolume1h).toLocaleString());
     var _mc = dexMarketCap > 1000 ? ('$' + Math.round(dexMarketCap / 1000) + 'K') : ('$' + Math.round(dexMarketCap));
     warnings.push('⚠ ' + dexLabel + ' — ' + _v + ' / 1H VOL VS ' + _mc + ' MARKET CAP — SCORE -' + dexPenalty + '%');
+  }
+  if (truncatedPenalty > 0) {
+    var _knownTotal = dexTxns24h > totalTxs ? dexTxns24h : '?';
+    warnings.push('⚠ INCOMPLETE SCAN — ANALYZED ' + totalTxs + ' OF ~' + _knownTotal + ' TXS — LAUNCH BUNDLE MAY BE HIDDEN IN OLDER TXS — SCORE -' + truncatedPenalty + '%');
   }
   if (mcapVolLabel) {
     var _mcStr = dexMarketCap > 1000 ? ('$' + Math.round(dexMarketCap / 1000) + 'K') : ('$' + Math.round(dexMarketCap));
@@ -939,6 +958,7 @@ function analyzePopulation(walletActivity, allTimestamps, totalSolVolume, totalT
   if (singleTxRatio >= 0.95)      singleTxPenalty = 70;
   else if (singleTxRatio >= 0.90) singleTxPenalty = 55;
   else if (singleTxRatio >= 0.85) singleTxPenalty = 38;
+  else if (singleTxRatio >= 0.80) singleTxPenalty = 30;
   else if (singleTxRatio >= 0.75) singleTxPenalty = 22;
 
   var burstRatio = 0, burstPenalty = 0;
