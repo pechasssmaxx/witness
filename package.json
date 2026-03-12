@@ -1,0 +1,12 @@
+{
+  "name": "witness-project",
+  "version": "1.0.0",
+  "description": "$WITNESS: The Last Human Token",
+  "main": "index.html",
+  "scripts": {
+    "start": "npx serve"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC"
+}
