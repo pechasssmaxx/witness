@@ -247,6 +247,7 @@ async function fetchHeliusData(mint) {
   var walletActivity = {};
   var allTimestamps = [];
   var totalSolLamports = 0;
+  var totalFeeLamports = 0;
   for (var _ti = 0; _ti < txList.length; _ti++) {
     var tx = txList[_ti];
     var signer = tx.feePayer || (tx.signers && tx.signers[0]);
@@ -261,8 +262,11 @@ async function fetchHeliusData(mint) {
       var _maxAmt = Math.max.apply(null, tx.nativeTransfers.map(function(t){ return t.amount||0; }));
       totalSolLamports += _maxAmt;
     }
+    if (tx.fee) totalFeeLamports += tx.fee;
   }
   var totalSolVolume = totalSolLamports / 1e9;
+  var totalFeesSol = totalFeeLamports / 1e9;
+  var avgFeeLamports = txList.length > 0 ? (totalFeeLamports / txList.length) : 0;
 
   var humanTxs = 0, botTxs = 0;
   var humanWallets = 0, botWallets = 0;
@@ -278,8 +282,26 @@ async function fetchHeliusData(mint) {
   var coordPenalty = detectCoordination(txList);
   var popPenalty = analyzePopulation(walletActivity, allTimestamps, totalSolVolume, txList.length);
   var dexPenalty = calcDexPenalty(dexMetrics);
+
+  // MCap vs on-chain SOL volume: если mcap >> реального объёма = накрутка/бандл
+  var mcapVolPenalty = 0, mcapVolLabel = null;
+  if (dexMetrics && dexMetrics.marketCap > 5000 && totalSolVolume > 0) {
+    var estimatedUsdVol = totalSolVolume * 100; // $100/SOL — консервативно
+    var mcapRatio = dexMetrics.marketCap / estimatedUsdVol;
+    if (mcapRatio > 500)      { mcapVolPenalty = 35; mcapVolLabel = 'GHOST MCAP'; }
+    else if (mcapRatio > 200) { mcapVolPenalty = 25; mcapVolLabel = 'INFLATED MCAP'; }
+    else if (mcapRatio > 50)  { mcapVolPenalty = 12; mcapVolLabel = 'SUSPICIOUS MCAP RATIO'; }
+  }
+
+  // Fee pattern: бандлы используют минимальные Solana fees (5000 lamports)
+  var feePenalty = 0;
+  if (txList.length >= 20 && avgFeeLamports > 0) {
+    if (avgFeeLamports <= 5200)      feePenalty = 15;
+    else if (avgFeeLamports <= 7000) feePenalty = 8;
+  }
+
   var rawScore = totalTxs > 0 ? Math.round((humanTxs / totalTxs) * 100) : 0;
-  var score = Math.max(0, rawScore - coordPenalty - popPenalty.penalty - dexPenalty.penalty);
+  var score = Math.max(0, rawScore - coordPenalty - popPenalty.penalty - dexPenalty.penalty - mcapVolPenalty - feePenalty);
 
   return {
     tokenName: tokenSymbol ? tokenName + ' (' + tokenSymbol + ')' : tokenName,
@@ -298,6 +320,10 @@ async function fetchHeliusData(mint) {
     dexLabel: dexPenalty.label,
     dexVolume1h: dexMetrics ? dexMetrics.volume1h : 0,
     dexMarketCap: dexMetrics ? dexMetrics.marketCap : 0,
+    mcapVolPenalty,
+    mcapVolLabel,
+    feePenalty,
+    totalFeesSol,
     lowSample: totalTxs < 40,
     rawTxs: txList.slice(0, 8)
   };
@@ -344,7 +370,8 @@ function showError(msg) {
 
 function showResult(addr, data) {
   const { tokenName, totalTxs, humanTxs, botTxs, score, rawTxs, lowSample, coordPenalty,
-          singleTxRatio, burstRatio, popPenalty, solVolPenalty, dexPenalty, dexLabel, dexVolume1h, dexMarketCap } = data;
+          singleTxRatio, burstRatio, popPenalty, solVolPenalty, dexPenalty, dexLabel, dexVolume1h, dexMarketCap,
+          mcapVolPenalty, mcapVolLabel, feePenalty, totalFeesSol } = data;
 
   let color, verdict, verdictBg;
   if (score >= 60) {
@@ -391,6 +418,13 @@ function showResult(addr, data) {
     var _v = dexVolume1h < 1 ? ('$' + Number(dexVolume1h).toFixed(2)) : ('$' + Math.round(dexVolume1h).toLocaleString());
     var _mc = dexMarketCap > 1000 ? ('$' + Math.round(dexMarketCap / 1000) + 'K') : ('$' + Math.round(dexMarketCap));
     warnings.push('⚠ ' + dexLabel + ' — ' + _v + ' / 1H VOL VS ' + _mc + ' MARKET CAP — SCORE -' + dexPenalty + '%');
+  }
+  if (mcapVolLabel) {
+    var _mcStr = dexMarketCap > 1000 ? ('$' + Math.round(dexMarketCap / 1000) + 'K') : ('$' + Math.round(dexMarketCap));
+    warnings.push('⚠ ' + mcapVolLabel + ' — ' + _mcStr + ' MCAP VS ' + (totalFeesSol || 0).toFixed(2) + ' SOL ON-CHAIN VOLUME — SCORE -' + mcapVolPenalty + '%');
+  }
+  if (feePenalty > 0) {
+    warnings.push('⚠ MINIMUM FEE PATTERN — ALL TXS AT MINIMUM SOLANA FEE — LIKELY AUTOMATED — SCORE -' + feePenalty + '%');
   }
   if (warnings.length > 0) {
     const wEl = document.createElement('div');
