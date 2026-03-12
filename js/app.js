@@ -381,7 +381,10 @@ function showResult(addr, data) {
   if (burstRatio >= 60) warnings.push('⚠ LAUNCH BURST — ' + burstRatio + '% OF TXS IN FIRST 5% OF TOKEN LIFETIME');
   if (solVolPenalty >= 18) warnings.push('⚠ DUST TRADES — AVG TRADE SIZE < 0.02 SOL — ARTIFICIAL VOLUME SUSPECTED');
   if (dexLabel) {
-    var _v = dexVolume1h < 1 ? ('
+    var _v = dexVolume1h < 1 ? ('$' + Number(dexVolume1h).toFixed(2)) : ('$' + Math.round(dexVolume1h).toLocaleString());
+    var _mc = dexMarketCap > 1000 ? ('$' + Math.round(dexMarketCap / 1000) + 'K') : ('$' + Math.round(dexMarketCap));
+    warnings.push('⚠ ' + dexLabel + ' — ' + _v + ' / 1H VOL VS ' + _mc + ' MARKET CAP — SCORE -' + dexPenalty + '%');
+  }
   if (warnings.length > 0) {
     const wEl = document.createElement('div');
     wEl.id = 'crWarnings';
@@ -873,7 +876,6 @@ function showWitnessWall() { _witnessWallRender(); }
     document.addEventListener('keydown', escKonami);
   }
 })();
- + Number(dexVolume1h).toFixed(2)) : ('
   if (warnings.length > 0) {
     const wEl = document.createElement('div');
     wEl.id = 'crWarnings';
@@ -1347,8 +1349,6 @@ function showWitnessWall() { _witnessWallRender(); }
     document.addEventListener('keydown', escKonami);
   }
 })();
- + Math.round(dexVolume1h).toLocaleString());
-    var _mc = dexMarketCap > 1000 ? ('
   if (warnings.length > 0) {
     const wEl = document.createElement('div');
     wEl.id = 'crWarnings';
@@ -1822,7 +1822,6 @@ function showWitnessWall() { _witnessWallRender(); }
     document.addEventListener('keydown', escKonami);
   }
 })();
- + Math.round(dexMarketCap / 1000) + 'K') : ('
   if (warnings.length > 0) {
     const wEl = document.createElement('div');
     wEl.id = 'crWarnings';
@@ -2296,9 +2295,6 @@ function showWitnessWall() { _witnessWallRender(); }
     document.addEventListener('keydown', escKonami);
   }
 })();
- + Math.round(dexMarketCap));
-    warnings.push('⚠ ' + dexLabel + ' — ' + _v + ' / 1H VOL VS ' + _mc + ' MARKET CAP — SCORE -' + dexPenalty + '%');
-  }
   if (warnings.length > 0) {
     const wEl = document.createElement('div');
     wEl.id = 'crWarnings';
