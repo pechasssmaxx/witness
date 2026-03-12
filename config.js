@@ -28,6 +28,6 @@ const WITNESS_CONFIG = {
   // ВНИМАНИЕ: ключ будет публичным на GitHub.
   // Перед деплоем создай новый ключ на helius.xyz
   // и поставь rate limit (например 100 req/min).
-  HELIUS_KEY: 'cd4668a5-1f52-4f0f-a763-93786eeb83a8',
+  HELIUS_KEY: '52ea7eb7-7c40-4e66-9dea-dd30f05310db',
 
 };
