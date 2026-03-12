@@ -212,10 +212,14 @@ async function fetchHeliusData(mint) {
   var txList = [];
   let lastSignature = null;
   const MAX_PAGES = 60; // 60 pages × 100 = up to 6000 transactions
+  // Smart sampling: if DexScreener shows many txs, fetch only 5 pages (500 txs).
+  // Score extrapolation (rawScore = humanTxs / dexTxns24h) handles accuracy.
+  const SAMPLE_PAGES = 5;
+  const effectiveMaxPages = (dexMetrics && dexMetrics.txns24h > 600) ? SAMPLE_PAGES : MAX_PAGES;
 
   document.getElementById('loadingText').textContent = 'FETCHING ALL TRANSACTIONS...';
 
-  for (let page = 0; page < MAX_PAGES; page++) {
+  for (let page = 0; page < effectiveMaxPages; page++) {
     try {
       let url = `https://api.helius.xyz/v0/addresses/${mint}/transactions?api-key=${HELIUS_KEY}&limit=100`;
       if (lastSignature) url += `&before=${lastSignature}`;
@@ -287,7 +291,7 @@ async function fetchHeliusData(mint) {
   // Если не все транзакции загружены — начальный бандл при запуске мог быть пропущен
   // Helius пагинирует newest-first: мы видим последние N, пропускаем старые (бандл)
   var truncatedPenalty = 0;
-  var hitPageLimit = (txList.length >= MAX_PAGES * 100);
+  var hitPageLimit = (txList.length >= effectiveMaxPages * 100);
   if (hitPageLimit) {
     truncatedPenalty = 25; // гарантированно есть ещё транзакции = вероятно бандл при запуске
   } else if (dexMetrics && dexMetrics.txns24h > txList.length * 1.5 && dexMetrics.txns24h > 500) {
