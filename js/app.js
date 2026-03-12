@@ -290,13 +290,7 @@ async function fetchHeliusData(mint) {
 
   // Если не все транзакции загружены — начальный бандл при запуске мог быть пропущен
   // Helius пагинирует newest-first: мы видим последние N, пропускаем старые (бандл)
-  var truncatedPenalty = 0;
   var hitPageLimit = (txList.length >= effectiveMaxPages * 100);
-  if (hitPageLimit) {
-    truncatedPenalty = 25; // гарантированно есть ещё транзакции = вероятно бандл при запуске
-  } else if (dexMetrics && dexMetrics.txns24h > txList.length * 1.5 && dexMetrics.txns24h > 500) {
-    truncatedPenalty = 20; // DexScreener видит больше транзакций чем мы нашли
-  }
 
   // MCap vs on-chain SOL volume: если mcap >> реального объёма = накрутка/бандл
   var mcapVolPenalty = 0, mcapVolLabel = null;
@@ -317,9 +311,21 @@ async function fetchHeliusData(mint) {
 
   // Если DexScreener знает о большем числе txs чем мы загрузили —
   // экстраполируем: пропущенные старые txs (бандл при запуске) = 0% human
+  var usedExtrapolation = false;
   var effectiveTotalTxs = totalTxs;
   if (totalTxs > 0 && dexMetrics && dexMetrics.txns24h > totalTxs * 1.3) {
     effectiveTotalTxs = dexMetrics.txns24h;
+    usedExtrapolation = true;
+  }
+  // truncatedPenalty применяется только когда экстраполяция НЕ используется
+  // (иначе двойное наказание за одни и те же пропущенные tx)
+  var truncatedPenalty = 0;
+  if (!usedExtrapolation) {
+    if (hitPageLimit) {
+      truncatedPenalty = 25;
+    } else if (dexMetrics && dexMetrics.txns24h > txList.length * 1.5 && dexMetrics.txns24h > 500) {
+      truncatedPenalty = 20;
+    }
   }
   var rawScore = effectiveTotalTxs > 0 ? Math.round((humanTxs / effectiveTotalTxs) * 100) : 0;
   var score = Math.max(0, rawScore - coordPenalty - popPenalty.penalty - dexPenalty.penalty - mcapVolPenalty - feePenalty - truncatedPenalty);
