@@ -284,51 +284,41 @@ async function fetchHeliusData(mint) {
   });
 
   var totalTxs = humanTxs + botTxs;
-  var coordPenalty = detectCoordination(txList);
-  var popPenalty = analyzePopulation(walletActivity, allTimestamps, totalSolVolume, txList.length);
-  var dexPenalty = calcDexPenalty(dexMetrics);
 
-  // Если не все транзакции загружены — начальный бандл при запуске мог быть пропущен
-  // Helius пагинирует newest-first: мы видим последние N, пропускаем старые (бандл)
-  var hitPageLimit = (txList.length >= effectiveMaxPages * 100);
-
-  // MCap vs on-chain SOL volume: если mcap >> реального объёма = накрутка/бандл
-  var mcapVolPenalty = 0, mcapVolLabel = null;
-  if (dexMetrics && dexMetrics.marketCap > 5000 && totalSolVolume > 0) {
-    var estimatedUsdVol = totalSolVolume * 100; // $100/SOL — консервативно
-    var mcapRatio = dexMetrics.marketCap / estimatedUsdVol;
-    if (mcapRatio > 500)      { mcapVolPenalty = 35; mcapVolLabel = 'GHOST MCAP'; }
-    else if (mcapRatio > 200) { mcapVolPenalty = 25; mcapVolLabel = 'INFLATED MCAP'; }
-    else if (mcapRatio > 50)  { mcapVolPenalty = 12; mcapVolLabel = 'SUSPICIOUS MCAP RATIO'; }
+  // ── PRIMARY SIGNAL: Total fees paid in SOL ──────────────────────────
+  // Bots pay Solana base fee only: 5000 lamports/tx = 0.000005 SOL each.
+  // Humans pay priority fees + Jito MEV tips = 10x-100x more per tx.
+  //
+  // Calibrated thresholds:
+  //   < 3 SOL total fees  →  BOT / bundle — no real trading
+  //   3-5 SOL             →  borderline / mixed
+  //   5-10+ SOL           →  real human activity confirmed
+  //
+  // If we only sampled a portion of all txs (sample mode), extrapolate
+  // fees proportionally so the threshold math stays consistent.
+  var dexTxns24h = dexMetrics ? dexMetrics.txns24h : 0;
+  var feesSolForScoring = totalFeesSol;
+  var usedFeeExtrapolation = false;
+  if (txList.length > 0 && dexTxns24h > txList.length * 1.3) {
+    feesSolForScoring = totalFeesSol * (dexTxns24h / txList.length);
+    usedFeeExtrapolation = true;
   }
 
-  // Fee pattern: бандлы используют минимальные Solana fees (5000 lamports)
-  var feePenalty = 0;
-  if (txList.length >= 20 && avgFeeLamports > 0) {
-    if (avgFeeLamports <= 5200)      feePenalty = 15;
-    else if (avgFeeLamports <= 7000) feePenalty = 8;
+  var score;
+  if (txList.length === 0) {
+    score = 0;
+  } else if (feesSolForScoring >= 10) {
+    score = 100;
+  } else if (feesSolForScoring >= 5) {
+    score = Math.round(60 + ((feesSolForScoring - 5) / 5) * 40);
+  } else if (feesSolForScoring >= 3) {
+    score = Math.round(30 + ((feesSolForScoring - 3) / 2) * 30);
+  } else if (feesSolForScoring >= 1) {
+    score = Math.round(10 + ((feesSolForScoring - 1) / 2) * 20);
+  } else {
+    score = Math.round(feesSolForScoring * 10);
   }
-
-  // Если DexScreener знает о большем числе txs чем мы загрузили —
-  // экстраполируем: пропущенные старые txs (бандл при запуске) = 0% human
-  var usedExtrapolation = false;
-  var effectiveTotalTxs = totalTxs;
-  if (totalTxs > 0 && dexMetrics && dexMetrics.txns24h > totalTxs * 1.3) {
-    effectiveTotalTxs = dexMetrics.txns24h;
-    usedExtrapolation = true;
-  }
-  // truncatedPenalty применяется только когда экстраполяция НЕ используется
-  // (иначе двойное наказание за одни и те же пропущенные tx)
-  var truncatedPenalty = 0;
-  if (!usedExtrapolation) {
-    if (hitPageLimit) {
-      truncatedPenalty = 25;
-    } else if (dexMetrics && dexMetrics.txns24h > txList.length * 1.5 && dexMetrics.txns24h > 500) {
-      truncatedPenalty = 20;
-    }
-  }
-  var rawScore = effectiveTotalTxs > 0 ? Math.round((humanTxs / effectiveTotalTxs) * 100) : 0;
-  var score = Math.max(0, rawScore - coordPenalty - popPenalty.penalty - dexPenalty.penalty - mcapVolPenalty - feePenalty - truncatedPenalty);
+  score = Math.max(0, Math.min(100, score));
 
   return {
     tokenName: tokenSymbol ? tokenName + ' (' + tokenSymbol + ')' : tokenName,
@@ -338,23 +328,14 @@ async function fetchHeliusData(mint) {
     humanWallets,
     botWallets,
     score,
-    coordPenalty,
-    singleTxRatio: popPenalty.singleTxRatio,
-    burstRatio: popPenalty.burstRatio,
-    popPenalty: popPenalty.penalty,
-    solVolPenalty: popPenalty.solVolPenalty,
-    dexPenalty: dexPenalty.penalty,
-    dexLabel: dexPenalty.label,
-    dexVolume1h: dexMetrics ? dexMetrics.volume1h : 0,
-    dexMarketCap: dexMetrics ? dexMetrics.marketCap : 0,
-    mcapVolPenalty,
-    mcapVolLabel,
-    feePenalty,
     totalFeesSol,
-    truncatedPenalty,
-    hitPageLimit,
-    dexTxns24h: dexMetrics ? dexMetrics.txns24h : 0,
-    lowSample: totalTxs < 40,
+    feesSolForScoring,
+    usedFeeExtrapolation,
+    avgFeeLamports,
+    dexTxns24h,
+    dexMarketCap: dexMetrics ? dexMetrics.marketCap : 0,
+    dexVolume1h: dexMetrics ? dexMetrics.volume1h : 0,
+    lowSample: txList.length < 40,
     rawTxs: txList.slice(0, 8)
   };
 }
@@ -399,15 +380,14 @@ function showError(msg) {
 }
 
 function showResult(addr, data) {
-  const { tokenName, totalTxs, humanTxs, botTxs, score, rawTxs, lowSample, coordPenalty,
-          singleTxRatio, burstRatio, popPenalty, solVolPenalty, dexPenalty, dexLabel, dexVolume1h, dexMarketCap,
-          mcapVolPenalty, mcapVolLabel, feePenalty, totalFeesSol,
-          truncatedPenalty, hitPageLimit, dexTxns24h } = data;
+  const { tokenName, totalTxs, humanTxs, botTxs, score, rawTxs, lowSample,
+          totalFeesSol, feesSolForScoring, usedFeeExtrapolation, avgFeeLamports,
+          dexTxns24h, dexMarketCap, dexVolume1h } = data;
 
   let color, verdict, verdictBg;
   if (score >= 60) {
     color = '#00ff88'; verdict = '[+] MOSTLY HUMANS'; verdictBg = '#00ff8811';
-  } else if (score >= 50) {
+  } else if (score >= 30) {
     color = '#ffcc00'; verdict = '[!] BOT ACTIVITY DETECTED'; verdictBg = '#ffcc0011';
   } else {
     color = '#ff2244'; verdict = '[x] BOT DOMINATED — HIGH RISK'; verdictBg = '#ff224411';
@@ -440,27 +420,24 @@ function showResult(addr, data) {
   const existingWarnings = document.getElementById('crWarnings');
   if (existingWarnings) existingWarnings.remove();
   const warnings = [];
-  if (lowSample) warnings.push('⚠ LOW SAMPLE — ONLY ' + totalTxs + ' TXS ANALYZED, RESULTS MAY BE INACCURATE');
-  if (coordPenalty > 0) warnings.push('⚠ COORDINATED ACTIVITY DETECTED — SCORE PENALIZED -' + coordPenalty + '%');
-  if (singleTxRatio >= 75) warnings.push('⚠ BUNDLER PATTERN — ' + singleTxRatio + '% OF WALLETS TRADED EXACTLY ONCE — SCORE -' + (popPenalty || 0) + '%');
-  if (burstRatio >= 60) warnings.push('⚠ LAUNCH BURST — ' + burstRatio + '% OF TXS IN FIRST 5% OF TOKEN LIFETIME');
-  if (solVolPenalty >= 18) warnings.push('⚠ DUST TRADES — AVG TRADE SIZE < 0.02 SOL — ARTIFICIAL VOLUME SUSPECTED');
-  if (dexLabel) {
-    var _v = dexVolume1h < 1 ? ('$' + Number(dexVolume1h).toFixed(2)) : ('$' + Math.round(dexVolume1h).toLocaleString());
-    var _mc = dexMarketCap > 1000 ? ('$' + Math.round(dexMarketCap / 1000) + 'K') : ('$' + Math.round(dexMarketCap));
-    warnings.push('⚠ ' + dexLabel + ' — ' + _v + ' / 1H VOL VS ' + _mc + ' MARKET CAP — SCORE -' + dexPenalty + '%');
+
+  // Fee-based verdict (primary signal)
+  var _feesDisplay = usedFeeExtrapolation
+    ? ('~' + feesSolForScoring.toFixed(2) + ' SOL EST. (SAMPLED ' + totalTxs + ' OF ~' + dexTxns24h + ' TXS)')
+    : (feesSolForScoring.toFixed(4) + ' SOL');
+  if (feesSolForScoring < 1) {
+    warnings.push('⚠ MINIMUM FEES ONLY — ' + _feesDisplay + ' TOTAL — BUNDLE / BOT PATTERN');
+  } else if (feesSolForScoring < 3) {
+    warnings.push('⚠ LOW FEES — ' + _feesDisplay + ' TOTAL — SUSPICIOUS ACTIVITY');
+  } else if (feesSolForScoring < 5) {
+    warnings.push('○ MODERATE FEES — ' + _feesDisplay + ' TOTAL — MIXED ACTIVITY');
+  } else {
+    warnings.push('✓ HIGH PRIORITY FEES — ' + _feesDisplay + ' TOTAL — REAL HUMAN TRADING CONFIRMED');
   }
-  if (truncatedPenalty > 0) {
-    var _knownTotal = dexTxns24h > totalTxs ? dexTxns24h : '?';
-    warnings.push('⚠ INCOMPLETE SCAN — ANALYZED ' + totalTxs + ' OF ~' + _knownTotal + ' TXS — LAUNCH BUNDLE MAY BE HIDDEN IN OLDER TXS — SCORE -' + truncatedPenalty + '%');
+  if (avgFeeLamports > 0 && avgFeeLamports <= 5200) {
+    warnings.push('⚠ AVG TX FEE ' + Math.round(avgFeeLamports).toLocaleString() + ' LAMPORTS — AT SOLANA MINIMUM — NO PRIORITY FEES DETECTED');
   }
-  if (mcapVolLabel) {
-    var _mcStr = dexMarketCap > 1000 ? ('$' + Math.round(dexMarketCap / 1000) + 'K') : ('$' + Math.round(dexMarketCap));
-    warnings.push('⚠ ' + mcapVolLabel + ' — ' + _mcStr + ' MCAP VS ' + (totalFeesSol || 0).toFixed(2) + ' SOL ON-CHAIN VOLUME — SCORE -' + mcapVolPenalty + '%');
-  }
-  if (feePenalty > 0) {
-    warnings.push('⚠ MINIMUM FEE PATTERN — ALL TXS AT MINIMUM SOLANA FEE — LIKELY AUTOMATED — SCORE -' + feePenalty + '%');
-  }
+  if (lowSample) warnings.push('⚠ LOW SAMPLE — ONLY ' + totalTxs + ' TXS ANALYZED — RESULTS MAY BE INACCURATE');
   if (warnings.length > 0) {
     const wEl = document.createElement('div');
     wEl.id = 'crWarnings';
