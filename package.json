@@ -4,7 +4,7 @@
   "description": "$WITNESS: The Last Human Token",
   "main": "index.html",
   "scripts": {
-    "start": "npx serve"
+    "start": "npx serve -s . -l 0.0.0.0:$PORT"
   },
   "keywords": [],
   "author": "",
