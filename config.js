@@ -20,9 +20,9 @@ const WITNESS_CONFIG = {
   // ── LINKS ─────────────────────────────────────────────────────
   TWITTER:     'https://x.com/witnes_sol',
   TELEGRAM:    'https://t.me/witness_sol',
-  DEXSCREENER: '',       // Fill in: https://dexscreener.com/solana/<CA>
-  PUMPFUN:     '',       // Fill in: https://pump.fun/<CA>
-  BUY_URL:     'https://pump.fun',   // Main BUY ON PUMP.FUN button
+  DEXSCREENER: 'https://dexscreener.com/solana/5ZZCLyrJ2CYzxqJxhECtzLFdwBNzwhTu6CnN9unqpump',       // Fill in: https://dexscreener.com/solana/<CA>
+  PUMPFUN:     'https://pump.fun/5ZZCLyrJ2CYzxqJxhECtzLFdwBNzwhTu6CnN9unqpump',       // Fill in: https://pump.fun/<CA>
+  BUY_URL:     'https://pump.fun/5ZZCLyrJ2CYzxqJxhECtzLFdwBNzwhTu6CnN9unqpump',   // Main BUY ON PUMP.FUN button
 
   // ── API ───────────────────────────────────────────────────────
   // WARNING: this key will be public on GitHub.
