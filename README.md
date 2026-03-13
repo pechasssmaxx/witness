@@ -49,4 +49,4 @@ The project features a high-fidelity cyberpunk aesthetic, including:
 
 ## Disclaimer
 
-$WITNESS is a narrative-driven project. All data provided through the Human Index is for experimental and entertainment purposes only. This is not financial advice.
+$WITNESS is a narrative-driven project. All data provided through the Human Index is for experimental and entertainment purposes only. This is not financial advice...
